@@ -162,7 +162,7 @@ h1{font-size:54px;font-weight:800;line-height:1;color:#6f6658;}
     <ol>
       <li>每次滑动或点击方向按钮，所有方块一起向同一方向移动。</li>
       <li>相同数字的方块碰到一起会合并成两倍，分数随之累加。</li>
-      <li>每次移动后，棋盘上会随机出现一个新方块（90% 是 2，10% 是 4）。</li>
+      <li>每次移动后，棋盘上会随机出现一个新方块（70% 是 2，30% 是 4）。</li>
       <li>撤销：每局有 3 次撤销机会（按 Z 或点击「撤销」按钮），可退回上一步；游戏结束后也可以用撤销续命。</li>
       <li>宝箱：每走 6 步会出现一个宝箱，点击开启可随机获得 +100/+200/+300 分，或额外 1 次撤销机会；每局最多 10 个。</li>
       <li>合成 2048 即获胜，胜利后仍可继续挑战更高分。</li>
@@ -231,7 +231,7 @@ function spawnTile(board){
   const empty = emptyCells(board);
   if (!empty.length) return false;
   const idx = empty[Math.floor(Math.random() * empty.length)];
-  board[idx] = { id: ++nextId, value: Math.random() < 0.9 ? 2 : 4, newborn: true };
+  board[idx] = { id: ++nextId, value: Math.random() < 0.7 ? 2 : 4, newborn: true };
   return true;
 }
 function canMove(board){
