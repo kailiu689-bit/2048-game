@@ -168,6 +168,7 @@ h1{font-size:54px;font-weight:800;line-height:1;color:#6f6658;}
       <li>合成 2048 即获胜，胜利后仍可继续挑战更高分。</li>
       <li>当 16 格全部填满且相邻没有相同数字时，游戏结束。</li>
       <li>在微信里打开时，如果滑动会误返回聊天，请改用屏幕上的方向按钮（▲◀▼▶）游玩。</li>
+      <li>进度自动保存：退出后重新打开会恢复到上次的棋盘和分数；点「新游戏」可重新开始。</li>
     </ol>
   </section>
 </div>
@@ -365,6 +366,7 @@ function openChest(){
   updateUndoBtn();
   updateChestBtn();
   showToast(msg);
+  saveGame();
 }
 
 function undo(){
@@ -379,6 +381,64 @@ function undo(){
   overlayEl.classList.add('hidden');
   render();
   setTimeout(clearFlags, 170);
+  saveGame();
+}
+
+function serializeState(){
+  return JSON.stringify({
+    v: 1,
+    board: board.map(t => (t === null ? null : t.value)),
+    score: score,
+    undoLeft: undoLeft,
+    chestMovesLeft: chestMovesLeft,
+    chestTotal: chestTotal,
+    won: won,
+    undoStack: history.map(h => ({ b: h.board.map(t => (t === null ? null : t.value)), s: h.score }))
+  });
+}
+
+function saveGame(){
+  try { localStorage.setItem('game2048State', serializeState()); } catch (e) {}
+}
+
+function clearSave(){
+  try { localStorage.removeItem('game2048State'); } catch (e) {}
+}
+
+function tryRestore(){
+  let raw = null;
+  try { raw = localStorage.getItem('game2048State'); } catch (e) { return false; }
+  if (!raw) return false;
+  try {
+    const d = JSON.parse(raw);
+    if (!d || d.v !== 1 || !Array.isArray(d.board) || d.board.length !== SIZE*SIZE) return false;
+    resetTileIds();
+    board = d.board.map(v => (v === null ? null : { id: ++nextId, value: v }));
+    score = d.score || 0;
+    undoLeft = (typeof d.undoLeft === 'number') ? d.undoLeft : 3;
+    chestMovesLeft = (typeof d.chestMovesLeft === 'number') ? d.chestMovesLeft : CHEST_INTERVAL;
+    chestTotal = d.chestTotal || 0;
+    won = !!d.won;
+    history = (Array.isArray(d.undoStack) ? d.undoStack : []).map(e => ({
+      board: e.b.map(v => (v === null ? null : { id: ++nextId, value: v })),
+      score: e.s
+    }));
+    over = false;
+    best = loadBest();
+    bestEl.textContent = best;
+    els.clear();
+    overlayEl.classList.add('hidden');
+    buildCells();
+    render();
+    updateScore();
+    updateUndoBtn();
+    updateChestBtn();
+    checkStatus();
+    showToast('已恢复上次进度');
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 function showOverlay(title, sub, btnText){
@@ -420,6 +480,7 @@ function doMove(dir){
   render();
   setTimeout(clearFlags, 170);
   checkStatus();
+  saveGame();
 }
 
 function init(){
@@ -427,6 +488,7 @@ function init(){
   board = emptyBoard();
   score = 0; over = false; won = false;
   history = []; undoLeft = 3; chestMovesLeft = 6; chestTotal = 0;
+  clearSave();
   best = loadBest();
   bestEl.textContent = best;
   spawnTile(board);
@@ -486,8 +548,10 @@ document.querySelectorAll('.pad-btn').forEach(btn => {
 });
 overlayBtn.addEventListener('click', () => { if (over) { init(); } else { overlayEl.classList.add('hidden'); } });
 window.addEventListener('resize', () => { buildCells(); render(); });
+window.addEventListener('pagehide', saveGame);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveGame(); });
 
-init();
+if (!tryRestore()) init();
 </script>
 </body>
 </html>
