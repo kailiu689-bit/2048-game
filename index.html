@@ -78,6 +78,19 @@ h1{font-size:54px;font-weight:800;line-height:1;color:#6f6658;}
 .btn:active{transform:scale(.96);}
 .btn.primary{background:#f2b179;}
 .btn.primary:hover{background:#f59563;}
+.btn-group{display:flex;gap:10px;}
+.btn:disabled{opacity:.45;cursor:not-allowed;}
+.btn.chest{background:#a67c00;color:#fff8e1;display:inline-flex;align-items:center;gap:6px;padding:12px 14px;}
+.btn.chest .chest-hint{font-size:11px;font-weight:400;opacity:.9;}
+.btn.chest.ready{background:#e9b949;animation:chest-pulse 1.1s ease-in-out infinite;}
+@keyframes chest-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}
+.toast{
+  position:fixed;top:26px;left:50%;transform:translate(-50%,-10px);
+  background:rgba(61,58,50,.94);color:#f9f6f2;padding:10px 20px;border-radius:12px;
+  font-size:15px;font-weight:600;z-index:30;pointer-events:none;white-space:nowrap;
+  opacity:0;transition:opacity .25s ease,transform .25s ease;box-shadow:0 6px 20px rgba(0,0,0,.28);
+}
+.toast.show{opacity:1;transform:translate(-50%,0);}
 .controls{display:flex;align-items:center;justify-content:space-between;margin-top:16px;}
 .hint{font-size:12px;color:#a99a8a;}
 .rules{
@@ -112,9 +125,15 @@ h1{font-size:54px;font-weight:800;line-height:1;color:#6f6658;}
   </div>
 
   <div class="controls">
-    <button id="new-game" class="btn primary">新游戏</button>
-    <p class="hint">方向键 / WASD 移动，手机滑动屏幕，按 R 重开</p>
+    <div class="btn-group">
+      <button id="undo-btn" class="btn">撤销 <span id="undo-count">x3</span></button>
+      <button id="new-game" class="btn primary">新游戏</button>
+    </div>
+    <button id="chest-btn" class="btn chest">🎁 宝箱<span id="chest-hint" class="chest-hint">还需 6 步</span></button>
   </div>
+  <p class="hint">方向键 / WASD 移动，手机滑动，Z 撤销，R 重开</p>
+
+  <div id="toast" class="toast"></div>
 
   <section class="rules">
     <h2>玩法说明</h2>
@@ -122,6 +141,8 @@ h1{font-size:54px;font-weight:800;line-height:1;color:#6f6658;}
       <li>每次滑动，所有方块一起向同一方向移动。</li>
       <li>相同数字的方块碰到一起会合并成两倍，分数随之累加。</li>
       <li>每次移动后，棋盘上会随机出现一个新方块（90% 是 2，10% 是 4）。</li>
+      <li>撤销：每局有 3 次撤销机会（按 Z 或点击「撤销」按钮），可退回上一步；游戏结束后也可以用撤销续命。</li>
+      <li>宝箱：每走 6 步会出现一个宝箱，点击开启可随机获得 +100/+200/+300 分，或额外 1 次撤销机会；每局最多 10 个。</li>
       <li>合成 2048 即获胜，胜利后仍可继续挑战更高分。</li>
       <li>当 16 格全部填满且相邻没有相同数字时，游戏结束。</li>
     </ol>
@@ -213,9 +234,18 @@ const overlayTitleEl = document.getElementById('overlay-title');
 const overlaySubEl = document.getElementById('overlay-sub');
 const overlayBtn = document.getElementById('overlay-btn');
 const newGameBtn = document.getElementById('new-game');
+const undoBtn = document.getElementById('undo-btn');
+const undoCountEl = document.getElementById('undo-count');
+const chestBtn = document.getElementById('chest-btn');
+const chestHintEl = document.getElementById('chest-hint');
+const toastEl = document.getElementById('toast');
 
 const GAP = 12, PAD = 12;
 let board = [], score = 0, best = 0, over = false, won = false;
+let history = [], undoLeft = 3, chestMovesLeft = 6, chestTotal = 0;
+let toastTimer = null;
+const CHEST_INTERVAL = 6, CHEST_MAX = 10;
+const CHEST_REWARDS = ['score100', 'score200', 'score300', 'undo'];
 const els = new Map();
 
 function loadBest(){ try { return Number(localStorage.getItem('best2048') || 0); } catch (e) { return 0; } }
@@ -274,6 +304,60 @@ function updateScore(){
   if (score > best) { best = score; bestEl.textContent = best; saveBest(best); }
 }
 
+function updateUndoBtn(){
+  undoCountEl.textContent = 'x' + undoLeft;
+  undoBtn.disabled = undoLeft <= 0 || history.length === 0;
+}
+
+function updateChestBtn(){
+  const ready = chestTotal < CHEST_MAX && chestMovesLeft <= 0;
+  chestBtn.classList.toggle('ready', ready);
+  if (chestTotal >= CHEST_MAX) chestHintEl.textContent = '已领完';
+  else if (ready) chestHintEl.textContent = '点我开启！';
+  else chestHintEl.textContent = '还需 ' + chestMovesLeft + ' 步';
+}
+
+function showToast(msg){
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2000);
+}
+
+function openChest(){
+  if (chestTotal >= CHEST_MAX || chestMovesLeft > 0) return;
+  const kind = CHEST_REWARDS[Math.floor(Math.random() * CHEST_REWARDS.length)];
+  let msg;
+  if (kind === 'undo') {
+    undoLeft++;
+    msg = '宝箱开启：撤销次数 +1';
+  } else {
+    const pts = Number(kind.slice(5));
+    score += pts;
+    msg = '宝箱开启：+' + pts + ' 分';
+  }
+  chestTotal++;
+  chestMovesLeft = CHEST_INTERVAL;
+  updateScore();
+  updateUndoBtn();
+  updateChestBtn();
+  showToast(msg);
+}
+
+function undo(){
+  if (undoLeft <= 0 || history.length === 0) return;
+  const snap = history.pop();
+  board = snap.board;
+  score = snap.score;
+  undoLeft--;
+  over = false;
+  updateScore();
+  updateUndoBtn();
+  overlayEl.classList.add('hidden');
+  render();
+  setTimeout(clearFlags, 170);
+}
+
 function showOverlay(title, sub, btnText){
   overlayTitleEl.textContent = title;
   overlaySubEl.textContent = sub;
@@ -301,9 +385,14 @@ function doMove(dir){
   if (over) return;
   const res = moveBoard(board, dir);
   if (!res.moved) return;
+  history.push({ board: board.slice(), score: score });
+  if (history.length > 50) history.shift();
+  updateUndoBtn();
   board = res.board;
   score += res.gained;
   spawnTile(board);
+  chestMovesLeft = Math.max(0, chestMovesLeft - 1);
+  updateChestBtn();
   updateScore();
   render();
   setTimeout(clearFlags, 170);
@@ -314,11 +403,14 @@ function init(){
   resetTileIds();
   board = emptyBoard();
   score = 0; over = false; won = false;
+  history = []; undoLeft = 3; chestMovesLeft = 6; chestTotal = 0;
   best = loadBest();
   bestEl.textContent = best;
   spawnTile(board);
   spawnTile(board);
   updateScore();
+  updateUndoBtn();
+  updateChestBtn();
   els.clear();
   overlayEl.classList.add('hidden');
   buildCells();
@@ -333,6 +425,7 @@ const KEYMAP = {
 window.addEventListener('keydown', (e) => {
   const dir = KEYMAP[e.key];
   if (dir) { e.preventDefault(); doMove(dir); return; }
+  if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); return; }
   if (e.key === 'r' || e.key === 'R') { e.preventDefault(); init(); }
 });
 
@@ -353,6 +446,14 @@ boardEl.addEventListener('touchend', (e) => {
 });
 
 newGameBtn.addEventListener('click', init);
+undoBtn.addEventListener('click', undo);
+chestBtn.addEventListener('click', () => {
+  if (chestTotal >= CHEST_MAX || chestMovesLeft > 0) {
+    showToast(chestTotal >= CHEST_MAX ? '本局宝箱已领完' : '还需走 ' + chestMovesLeft + ' 步开启宝箱');
+    return;
+  }
+  openChest();
+});
 overlayBtn.addEventListener('click', () => { if (over) { init(); } else { overlayEl.classList.add('hidden'); } });
 window.addEventListener('resize', () => { buildCells(); render(); });
 
