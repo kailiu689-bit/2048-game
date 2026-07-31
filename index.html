@@ -93,6 +93,20 @@ h1{font-size:54px;font-weight:800;line-height:1;color:#6f6658;}
 .toast.show{opacity:1;transform:translate(-50%,0);}
 .controls{display:flex;align-items:center;justify-content:space-between;margin-top:16px;}
 .hint{font-size:12px;color:#a99a8a;}
+.pad{display:grid;grid-template-columns:repeat(3,60px);grid-template-rows:repeat(3,60px);gap:10px;justify-content:center;margin-top:16px;}
+.pad-btn{
+  width:60px;height:60px;border:none;border-radius:14px;background:#bbada0;color:#f9f6f2;
+  font-size:22px;font-weight:700;font-family:inherit;cursor:pointer;touch-action:manipulation;
+  box-shadow:0 3px 0 #9c8d7f;transition:transform .05s ease,background .15s ease;
+  user-select:none;-webkit-user-select:none;
+}
+.pad-btn:active{transform:translateY(2px);box-shadow:0 1px 0 #9c8d7f;background:#a99a8a;}
+.pad-btn.center{background:#8f7a66;}
+.pad-btn[data-dir="up"]{grid-area:1/2;}
+.pad-btn[data-dir="left"]{grid-area:2/1;}
+.pad-btn.center{grid-area:2/2;}
+.pad-btn[data-dir="right"]{grid-area:2/3;}
+.pad-btn[data-dir="down"]{grid-area:3/2;}
 .rules{
   margin-top:26px;background:#fff;border:1px solid #ece4d6;border-radius:10px;
   padding:16px 18px;box-shadow:0 1px 4px rgba(0,0,0,.04);
@@ -131,20 +145,29 @@ h1{font-size:54px;font-weight:800;line-height:1;color:#6f6658;}
     </div>
     <button id="chest-btn" class="btn chest">🎁 宝箱<span id="chest-hint" class="chest-hint">还需 6 步</span></button>
   </div>
-  <p class="hint">方向键 / WASD 移动，手机滑动，Z 撤销，R 重开</p>
+  <p class="hint">方向键 / WASD / 屏幕按钮移动，手机可滑动，Z 撤销，R 重开</p>
+
+  <div class="pad">
+    <button class="pad-btn" data-dir="up" aria-label="上">▲</button>
+    <button class="pad-btn" data-dir="left" aria-label="左">◀</button>
+    <button class="pad-btn center" data-dir="undo" aria-label="撤销">↶</button>
+    <button class="pad-btn" data-dir="right" aria-label="右">▶</button>
+    <button class="pad-btn" data-dir="down" aria-label="下">▼</button>
+  </div>
 
   <div id="toast" class="toast"></div>
 
   <section class="rules">
     <h2>玩法说明</h2>
     <ol>
-      <li>每次滑动，所有方块一起向同一方向移动。</li>
+      <li>每次滑动或点击方向按钮，所有方块一起向同一方向移动。</li>
       <li>相同数字的方块碰到一起会合并成两倍，分数随之累加。</li>
       <li>每次移动后，棋盘上会随机出现一个新方块（90% 是 2，10% 是 4）。</li>
       <li>撤销：每局有 3 次撤销机会（按 Z 或点击「撤销」按钮），可退回上一步；游戏结束后也可以用撤销续命。</li>
       <li>宝箱：每走 6 步会出现一个宝箱，点击开启可随机获得 +100/+200/+300 分，或额外 1 次撤销机会；每局最多 10 个。</li>
       <li>合成 2048 即获胜，胜利后仍可继续挑战更高分。</li>
       <li>当 16 格全部填满且相邻没有相同数字时，游戏结束。</li>
+      <li>在微信里打开时，如果滑动会误返回聊天，请改用屏幕上的方向按钮（▲◀▼▶）游玩。</li>
     </ol>
   </section>
 </div>
@@ -453,6 +476,13 @@ chestBtn.addEventListener('click', () => {
     return;
   }
   openChest();
+});
+document.querySelectorAll('.pad-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const d = btn.dataset.dir;
+    if (d === 'undo') undo();
+    else doMove(d);
+  });
 });
 overlayBtn.addEventListener('click', () => { if (over) { init(); } else { overlayEl.classList.add('hidden'); } });
 window.addEventListener('resize', () => { buildCells(); render(); });
