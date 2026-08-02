@@ -94,6 +94,21 @@ h1{font-size:54px;font-weight:800;line-height:1;color:#6f6658;}
 .btn.chest .chest-hint{font-size:11px;font-weight:400;opacity:.9;}
 .btn.chest.ready{background:#e9b949;animation:chest-pulse 1.1s ease-in-out infinite;}
 @keyframes chest-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}
+.chest-overlay{position:fixed;inset:0;z-index:40;background:rgba(61,58,50,.55);display:flex;align-items:center;justify-content:center;}
+.chest-overlay.hidden{display:none;}
+.chest-box{background:#fdf8ee;border-radius:16px;padding:22px 24px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.35);max-width:88vw;}
+.chest-title{font-size:20px;font-weight:800;color:#6f6658;margin-bottom:16px;}
+.chest-slots{display:flex;gap:10px;justify-content:center;margin-bottom:14px;}
+.chest-slot{
+  width:86px;height:54px;border-radius:10px;background:#efe4d2;border:2px solid #e0d2b8;
+  display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#6f6658;overflow:hidden;
+}
+.chest-slot.winner{border-color:#e9b949;background:#fff3d6;animation:chest-pulse 1s ease-in-out infinite;}
+.chest-slot.rare{color:#4a90d9;border-color:#4a90d9;}
+.chest-slot.epic{color:#d4a017;border-color:#d4a017;box-shadow:0 0 18px rgba(212,160,23,.55);}
+.chest-result{font-size:15px;font-weight:700;color:#6f6658;min-height:20px;margin-bottom:14px;}
+.chest-result.rare{color:#4a90d9;}
+.chest-result.epic{color:#d4a017;}
 .toast{
   position:fixed;top:26px;left:50%;transform:translate(-50%,-10px);
   background:rgba(61,58,50,.94);color:#f9f6f2;padding:10px 20px;border-radius:12px;
@@ -173,6 +188,19 @@ h1{font-size:54px;font-weight:800;line-height:1;color:#6f6658;}
     <button class="pad-btn" data-dir="down" aria-label="下">▼</button>
   </div>
 
+  <div id="chest-overlay" class="chest-overlay hidden">
+    <div class="chest-box">
+      <div class="chest-title">🎁 宝箱开启</div>
+      <div class="chest-slots">
+        <div class="chest-slot" id="slot-0">🎁</div>
+        <div class="chest-slot" id="slot-1">🎁</div>
+        <div class="chest-slot" id="slot-2">🎁</div>
+      </div>
+      <div id="chest-result" class="chest-result"></div>
+      <button id="chest-claim" class="btn primary hidden">收下奖励</button>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
 
   <section class="rules">
@@ -182,7 +210,7 @@ h1{font-size:54px;font-weight:800;line-height:1;color:#6f6658;}
       <li>相同数字的方块碰到一起会合并成两倍，分数随之累加。</li>
       <li>每次移动后，棋盘上会随机出现一个新方块（90% 是 2，10% 是 4）。</li>
       <li>撤销：每局有 3 次撤销机会（按 Z 或点击「撤销」按钮），可退回上一步；游戏结束后也可以用撤销续命。</li>
-      <li>宝箱：每走 6 步会出现一个宝箱，点击开启可随机获得 +100/+200/+300 分，或额外 1 次撤销机会；每局最多 10 个。</li>
+      <li>宝箱：每走 6 步会出现一个宝箱，点击开启进入抽奖——普通（+100/+200 分）、稀有（+300 分 / 撤销 +1 / 清除 2 个最小方块）、传说（随机方块翻倍 / 撤销 +1 且 +200 分 / 清除 4 个方块且 +100 分）；每局最多 10 个，清除和翻倍奖励可以撤销。</li>
       <li>连击：一次移动同时合成 2 对及以上方块，会获得连击加分（x2 连击 +10，x3 +20，x4 +30）。</li>
       <li>成就：首次达到 128/256/512/1024 会有庆祝提示，合成 2048 获胜。</li>
       <li>音效：右上角 🔊 按钮可随时开关音效和震动。</li>
@@ -274,6 +302,41 @@ function boardMax(board){
 function comboBonus(merges){
   return merges >= 2 ? (merges - 1) * 10 : 0;
 }
+const CHEST_TABLE = [
+  { rarity: 'common', weight: 28, type: 'score', value: 100 },
+  { rarity: 'common', weight: 27, type: 'score', value: 200 },
+  { rarity: 'rare',   weight: 12, type: 'score', value: 300 },
+  { rarity: 'rare',   weight: 10, type: 'undo',  value: 1 },
+  { rarity: 'rare',   weight: 8,  type: 'clear', value: 2 },
+  { rarity: 'epic',   weight: 7,  type: 'double', value: 1 },
+  { rarity: 'epic',   weight: 4,  type: 'undo',  value: 1, extraScore: 200 },
+  { rarity: 'epic',   weight: 4,  type: 'clear', value: 4, extraScore: 100 }
+];
+function pickChestReward(){
+  const total = CHEST_TABLE.reduce((s, r) => s + r.weight, 0);
+  let roll = Math.random() * total;
+  for (const r of CHEST_TABLE) {
+    roll -= r.weight;
+    if (roll < 0) return r;
+  }
+  return CHEST_TABLE[0];
+}
+function clearSmallestTiles(board, n){
+  const picks = board.map((t, i) => (t === null ? null : { i, v: t.value }))
+    .filter(x => x !== null)
+    .sort((a, b) => a.v - b.v || a.i - b.i)
+    .slice(0, n);
+  for (const x of picks) board[x.i] = null;
+  return picks.length;
+}
+function doubleRandomTile(board){
+  const idx = [];
+  for (let i = 0; i < board.length; i++) if (board[i] !== null) idx.push(i);
+  if (!idx.length) return false;
+  const pick = idx[Math.floor(Math.random() * idx.length)];
+  board[pick].value *= 2;
+  return true;
+}
 /* LOGIC_END */
 
 const boardEl = document.getElementById('board');
@@ -292,6 +355,14 @@ const toastEl = document.getElementById('toast');
 const soundBtn = document.getElementById('sound-btn');
 const tipEl = document.getElementById('tip');
 const tipCloseBtn = document.getElementById('tip-close');
+const chestOverlayEl = document.getElementById('chest-overlay');
+const chestResultEl = document.getElementById('chest-result');
+const chestClaimBtn = document.getElementById('chest-claim');
+const slotEls = [
+  document.getElementById('slot-0'),
+  document.getElementById('slot-1'),
+  document.getElementById('slot-2')
+];
 
 const GAP = 12, PAD = 12;
 let board = [], score = 0, best = 0, over = false, won = false;
@@ -299,9 +370,11 @@ let history = [], undoLeft = 3, chestMovesLeft = 6, chestTotal = 0;
 let toastTimer = null;
 let moves = 0, muted = false, audioCtx = null;
 let milestonesReached = new Set();
+let chestRollTimer = null;
 const CHEST_INTERVAL = 6, CHEST_MAX = 10;
-const CHEST_REWARDS = ['score100', 'score200', 'score300', 'undo'];
 const MILESTONES = [128, 256, 512, 1024];
+const REWARD_LABELS = ['+100 分', '+200 分', '+300 分', '撤销 +1', '清除方块', '方块翻倍'];
+const RARITY_NAMES = { common: '普通', rare: '稀有', epic: '传说' };
 const els = new Map();
 
 function loadBest(){ try { return Number(localStorage.getItem('best2048') || 0); } catch (e) { return 0; } }
@@ -437,25 +510,71 @@ function showToast(msg){
 
 function openChest(){
   if (chestTotal >= CHEST_MAX || chestMovesLeft > 0) return;
-  const kind = CHEST_REWARDS[Math.floor(Math.random() * CHEST_REWARDS.length)];
-  let msg;
-  if (kind === 'undo') {
-    undoLeft++;
-    msg = '宝箱开启：撤销次数 +1';
+  const reward = pickChestReward();
+  if (reward.type === 'clear' || reward.type === 'double') {
+    history.push({ board: board.map(t => (t === null ? null : { id: t.id, value: t.value })), score: score });
+    if (history.length > 50) history.shift();
+  }
+  let resultText;
+  if (reward.type === 'score') {
+    score += reward.value;
+    resultText = '+' + reward.value + ' 分';
+  } else if (reward.type === 'undo') {
+    undoLeft += reward.value;
+    resultText = '撤销次数 +' + reward.value;
+    if (reward.extraScore) { score += reward.extraScore; resultText += '，+' + reward.extraScore + ' 分'; }
+  } else if (reward.type === 'clear') {
+    const n = clearSmallestTiles(board, reward.value);
+    resultText = '清除 ' + n + ' 个最小方块';
+    if (reward.extraScore) { score += reward.extraScore; resultText += '，+' + reward.extraScore + ' 分'; }
   } else {
-    const pts = Number(kind.slice(5));
-    score += pts;
-    msg = '宝箱开启：+' + pts + ' 分';
+    const ok = doubleRandomTile(board);
+    resultText = ok ? '随机方块翻倍！' : '+200 分';
+    if (!ok) score += 200;
   }
   chestTotal++;
   chestMovesLeft = CHEST_INTERVAL;
   updateScore();
   updateUndoBtn();
   updateChestBtn();
-  showToast(msg);
-  playTone('chest');
-  vibrate(40);
+  render();
+  checkMilestones();
+  checkStatus();
+  showChestRoll(reward, resultText);
   saveGame();
+}
+
+function showChestRoll(reward, resultText){
+  chestResultEl.textContent = '';
+  chestResultEl.className = 'chest-result ' + reward.rarity;
+  chestClaimBtn.classList.add('hidden');
+  chestOverlayEl.classList.remove('hidden');
+  const stopTicks = [6, 14, 10];
+  slotEls.forEach(s => {
+    s.classList.remove('stopped', 'winner', 'common', 'rare', 'epic');
+    s.textContent = '🎁';
+  });
+  let tick = 0;
+  clearInterval(chestRollTimer);
+  chestRollTimer = setInterval(() => {
+    tick++;
+    slotEls.forEach((s, i) => {
+      if (s.classList.contains('stopped')) return;
+      s.textContent = REWARD_LABELS[Math.floor(Math.random() * REWARD_LABELS.length)];
+      if (tick < stopTicks[i]) return;
+      if (i === 1) {
+        s.textContent = resultText;
+        s.classList.add('stopped', 'winner', reward.rarity);
+        clearInterval(chestRollTimer);
+        chestResultEl.textContent = RARITY_NAMES[reward.rarity] + '奖励：' + resultText;
+        chestClaimBtn.classList.remove('hidden');
+        playTone(reward.rarity === 'epic' ? 'win' : (reward.rarity === 'rare' ? 'milestone' : 'chest'));
+        vibrate(reward.rarity === 'epic' ? 80 : 40);
+      } else {
+        s.classList.add('stopped');
+      }
+    });
+  }, 90);
 }
 
 function undo(){
@@ -671,6 +790,7 @@ chestBtn.addEventListener('click', () => {
   }
   openChest();
 });
+chestClaimBtn.addEventListener('click', () => { chestOverlayEl.classList.add('hidden'); });
 document.querySelectorAll('.pad-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     ensureAudio();
