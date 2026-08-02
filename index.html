@@ -28,6 +28,16 @@ h1{font-size:54px;font-weight:800;line-height:1;color:#6f6658;}
 .score-box{background:var(--board);color:var(--cream);border-radius:8px;padding:6px 16px;text-align:center;min-width:88px;}
 .score-label{display:block;font-size:12px;letter-spacing:2px;color:#eee4da;}
 .score-value{display:block;font-size:24px;font-weight:700;margin-top:2px;}
+.top-right{display:flex;align-items:flex-end;gap:10px;}
+.sound-btn{width:40px;height:40px;border:none;border-radius:10px;background:var(--board);font-size:18px;cursor:pointer;transition:transform .1s ease;}
+.sound-btn:active{transform:scale(.92);}
+.tip{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:#fff3d6;border:1px solid #f0d9a8;border-radius:10px;
+  padding:10px 12px;font-size:13px;color:#8a6d3b;margin-bottom:12px;
+}
+.tip.hidden{display:none;}
+.tip-close{border:none;background:none;font-size:18px;line-height:1;color:#a08a5c;cursor:pointer;padding:2px 4px;}
 .board-wrap{position:relative;}
 .board{
   position:relative;
@@ -123,11 +133,19 @@ h1{font-size:54px;font-weight:800;line-height:1;color:#6f6658;}
       <h1>2048</h1>
       <p class="subtitle">小游戏</p>
     </div>
-    <div class="scores">
-      <div class="score-box"><span class="score-label">分数</span><span id="score" class="score-value">0</span></div>
-      <div class="score-box"><span class="score-label">最高分</span><span id="best" class="score-value">0</span></div>
+    <div class="top-right">
+      <div class="scores">
+        <div class="score-box"><span class="score-label">分数</span><span id="score" class="score-value">0</span></div>
+        <div class="score-box"><span class="score-label">最高分</span><span id="best" class="score-value">0</span></div>
+      </div>
+      <button id="sound-btn" class="sound-btn" aria-label="音效开关">🔊</button>
     </div>
   </header>
+
+  <div id="tip" class="tip hidden">
+    <span>💡 小技巧：把最大的方块固定在角落，主要往两个方向推。</span>
+    <button id="tip-close" class="tip-close" aria-label="关闭提示">×</button>
+  </div>
 
   <div class="board-wrap">
     <div id="board" class="board"></div>
@@ -165,6 +183,9 @@ h1{font-size:54px;font-weight:800;line-height:1;color:#6f6658;}
       <li>每次移动后，棋盘上会随机出现一个新方块（90% 是 2，10% 是 4）。</li>
       <li>撤销：每局有 3 次撤销机会（按 Z 或点击「撤销」按钮），可退回上一步；游戏结束后也可以用撤销续命。</li>
       <li>宝箱：每走 6 步会出现一个宝箱，点击开启可随机获得 +100/+200/+300 分，或额外 1 次撤销机会；每局最多 10 个。</li>
+      <li>连击：一次移动同时合成 2 对及以上方块，会获得连击加分（x2 连击 +10，x3 +20，x4 +30）。</li>
+      <li>成就：首次达到 128/256/512/1024 会有庆祝提示，合成 2048 获胜。</li>
+      <li>音效：右上角 🔊 按钮可随时开关音效和震动。</li>
       <li>合成 2048 即获胜，胜利后仍可继续挑战更高分。</li>
       <li>当 16 格全部填满且相邻没有相同数字时，游戏结束。</li>
       <li>在微信里打开时，如果滑动会误返回聊天，请改用屏幕上的方向按钮（▲◀▼▶）游玩。</li>
@@ -188,12 +209,13 @@ function emptyCells(board){
 function slideLine(line){
   const tiles = line.filter(t => t !== null);
   const out = [];
-  let gained = 0;
+  let gained = 0, merges = 0;
   for (let i = 0; i < tiles.length; i++) {
     const a = tiles[i];
     if (i + 1 < tiles.length && a.value === tiles[i+1].value) {
       out.push({ id: ++nextId, value: a.value * 2, merged: true });
       gained += a.value * 2;
+      merges++;
       i++;
     } else {
       out.push(a);
@@ -205,7 +227,7 @@ function slideLine(line){
     if ((out[j] === null) !== (line[j] === null)) { moved = true; break; }
     if (out[j] !== null && line[j] !== null && out[j].id !== line[j].id) { moved = true; break; }
   }
-  return { line: out, gained, moved };
+  return { line: out, gained, moved, merges };
 }
 const DIRS = {
   left:  i => [i*SIZE, i*SIZE+1, i*SIZE+2, i*SIZE+3],
@@ -215,7 +237,7 @@ const DIRS = {
 };
 function moveBoard(board, dir){
   const next = board.slice();
-  let gained = 0, moved = false;
+  let gained = 0, moved = false, merges = 0;
   const idxFor = DIRS[dir];
   for (let i = 0; i < SIZE; i++) {
     const idxs = idxFor(i);
@@ -223,9 +245,10 @@ function moveBoard(board, dir){
     if (!res.moved) continue;
     moved = true;
     gained += res.gained;
+    merges += res.merges;
     idxs.forEach((k, j) => { next[k] = res.line[j]; });
   }
-  return { board: next, gained, moved };
+  return { board: next, gained, moved, merges };
 }
 function spawnTile(board){
   const empty = emptyCells(board);
@@ -248,6 +271,9 @@ function boardMax(board){
   for (const t of board) if (t !== null && t.value > m) m = t.value;
   return m;
 }
+function comboBonus(merges){
+  return merges >= 2 ? (merges - 1) * 10 : 0;
+}
 /* LOGIC_END */
 
 const boardEl = document.getElementById('board');
@@ -263,17 +289,78 @@ const undoCountEl = document.getElementById('undo-count');
 const chestBtn = document.getElementById('chest-btn');
 const chestHintEl = document.getElementById('chest-hint');
 const toastEl = document.getElementById('toast');
+const soundBtn = document.getElementById('sound-btn');
+const tipEl = document.getElementById('tip');
+const tipCloseBtn = document.getElementById('tip-close');
 
 const GAP = 12, PAD = 12;
 let board = [], score = 0, best = 0, over = false, won = false;
 let history = [], undoLeft = 3, chestMovesLeft = 6, chestTotal = 0;
 let toastTimer = null;
+let moves = 0, muted = false, audioCtx = null;
+let milestonesReached = new Set();
 const CHEST_INTERVAL = 6, CHEST_MAX = 10;
 const CHEST_REWARDS = ['score100', 'score200', 'score300', 'undo'];
+const MILESTONES = [128, 256, 512, 1024];
 const els = new Map();
 
 function loadBest(){ try { return Number(localStorage.getItem('best2048') || 0); } catch (e) { return 0; } }
 function saveBest(v){ try { localStorage.setItem('best2048', String(v)); } catch (e) {} }
+
+function loadMuted(){ try { return localStorage.getItem('game2048Muted') === '1'; } catch (e) { return false; } }
+function saveMuted(v){ try { localStorage.setItem('game2048Muted', v ? '1' : '0'); } catch (e) {} }
+function updateSoundBtn(){ soundBtn.textContent = muted ? '🔇' : '🔊'; }
+
+function ensureAudio(){
+  if (audioCtx) return;
+  try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+}
+function tone(freq, start, dur){
+  if (!audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(0.12, start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(start);
+    osc.stop(start + dur + 0.05);
+  } catch (e) {}
+}
+function playTone(kind){
+  if (muted) return;
+  ensureAudio();
+  if (!audioCtx) return;
+  try { if (audioCtx.resume) audioCtx.resume(); } catch (e) {}
+  const t = audioCtx.currentTime;
+  const seq = {
+    merge:     [[520, 0, 0.09]],
+    combo:     [[520, 0, 0.09], [660, 0.08, 0.09], [780, 0.16, 0.12]],
+    chest:     [[660, 0, 0.09], [880, 0.1, 0.14]],
+    milestone: [[523, 0, 0.1], [659, 0.09, 0.1], [784, 0.18, 0.1], [1047, 0.27, 0.16]],
+    win:       [[523, 0, 0.12], [659, 0.1, 0.12], [784, 0.2, 0.12], [1047, 0.3, 0.2], [1319, 0.42, 0.25]],
+    over:      [[392, 0, 0.12], [330, 0.14, 0.12], [262, 0.28, 0.2]]
+  }[kind] || [];
+  seq.forEach(s => tone(s[0], t + s[1], s[2]));
+}
+function vibrate(pattern){
+  try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) {}
+}
+
+function loadTipSeen(){ try { return Number(localStorage.getItem('game2048TipSeen') || 0); } catch (e) { return 0; } }
+function saveTipSeen(n){ try { localStorage.setItem('game2048TipSeen', String(n)); } catch (e) {} }
+function maybeShowTip(){
+  if (loadTipSeen() < 2) tipEl.classList.remove('hidden');
+  else tipEl.classList.add('hidden');
+}
+function dismissTip(){
+  saveTipSeen(loadTipSeen() + 1);
+  tipEl.classList.add('hidden');
+}
 
 function tileClass(v){ return v <= 2048 ? 'v' + v : 'vsuper'; }
 
@@ -288,9 +375,9 @@ function render(){
     if (!el) {
       el = document.createElement('div');
       el.className = 'tile';
-      boardEl.appendChild(el);
       els.set(tile.id, el);
     }
+    if (!el.isConnected) boardEl.appendChild(el);
     seen.add(tile.id);
     el.style.left = (PAD + c*(cell+GAP)) + 'px';
     el.style.top = (PAD + r*(cell+GAP)) + 'px';
@@ -366,6 +453,8 @@ function openChest(){
   updateUndoBtn();
   updateChestBtn();
   showToast(msg);
+  playTone('chest');
+  vibrate(40);
   saveGame();
 }
 
@@ -389,6 +478,7 @@ function serializeState(){
     v: 1,
     board: board.map(t => (t === null ? null : t.value)),
     score: score,
+    moves: moves,
     undoLeft: undoLeft,
     chestMovesLeft: chestMovesLeft,
     chestTotal: chestTotal,
@@ -415,6 +505,7 @@ function tryRestore(){
     resetTileIds();
     board = d.board.map(v => (v === null ? null : { id: ++nextId, value: v }));
     score = d.score || 0;
+    moves = (typeof d.moves === 'number') ? d.moves : 0;
     undoLeft = (typeof d.undoLeft === 'number') ? d.undoLeft : 3;
     chestMovesLeft = (typeof d.chestMovesLeft === 'number') ? d.chestMovesLeft : CHEST_INTERVAL;
     chestTotal = d.chestTotal || 0;
@@ -424,6 +515,7 @@ function tryRestore(){
       score: e.s
     }));
     over = false;
+    milestonesReached = new Set(MILESTONES.filter(l => boardMax(board) >= l));
     best = loadBest();
     bestEl.textContent = best;
     els.clear();
@@ -435,6 +527,7 @@ function tryRestore(){
     updateChestBtn();
     checkStatus();
     showToast('已恢复上次进度');
+    maybeShowTip();
     return true;
   } catch (e) {
     return false;
@@ -443,18 +536,33 @@ function tryRestore(){
 
 function showOverlay(title, sub, btnText){
   overlayTitleEl.textContent = title;
-  overlaySubEl.textContent = sub;
+  overlaySubEl.innerHTML = sub;
   overlayBtn.textContent = btnText;
   overlayEl.classList.remove('hidden');
+}
+
+function checkMilestones(){
+  const m = boardMax(board);
+  for (const level of MILESTONES) {
+    if (!milestonesReached.has(level) && m >= level) {
+      milestonesReached.add(level);
+      showToast('🎉 达成 ' + level + '！');
+      playTone('milestone');
+      vibrate(40);
+    }
+  }
 }
 
 function checkStatus(){
   if (!won && boardMax(board) >= 2048) {
     won = true;
-    showOverlay('你赢了！🎉', '合成 2048，可以继续挑战更高分', '继续游戏');
+    playTone('win');
+    vibrate(80);
+    showOverlay('你赢了！🎉', '合成 2048！得分 ' + score + '<br>可以继续挑战更高分', '继续游戏');
   } else if (!canMove(board)) {
     over = true;
-    showOverlay('游戏结束', '没有可合并的方块了，再来一局吧', '再来一局');
+    playTone('over');
+    showOverlay('游戏结束', '本局得分 ' + score + ' · 最大方块 ' + boardMax(board) + ' · 步数 ' + moves + ' · 宝箱 ' + chestTotal + '<br>没有可合并的方块了，再来一局吧', '再来一局');
   }
 }
 
@@ -473,12 +581,24 @@ function doMove(dir){
   updateUndoBtn();
   board = res.board;
   score += res.gained;
+  const combo = comboBonus(res.merges);
+  if (combo > 0) {
+    score += combo;
+    showToast('连击 x' + res.merges + '！+' + combo + ' 分');
+    playTone('combo');
+    vibrate(50);
+  } else if (res.merges > 0) {
+    playTone('merge');
+    vibrate(25);
+  }
   spawnTile(board);
+  moves++;
   chestMovesLeft = Math.max(0, chestMovesLeft - 1);
   updateChestBtn();
   updateScore();
   render();
   setTimeout(clearFlags, 170);
+  checkMilestones();
   checkStatus();
   saveGame();
 }
@@ -488,6 +608,8 @@ function init(){
   board = emptyBoard();
   score = 0; over = false; won = false;
   history = []; undoLeft = 3; chestMovesLeft = 6; chestTotal = 0;
+  moves = 0;
+  milestonesReached = new Set();
   clearSave();
   best = loadBest();
   bestEl.textContent = best;
@@ -500,6 +622,7 @@ function init(){
   overlayEl.classList.add('hidden');
   buildCells();
   render();
+  maybeShowTip();
 }
 
 const KEYMAP = {
@@ -508,6 +631,7 @@ const KEYMAP = {
   A:'left', W:'up', D:'right', S:'down'
 };
 window.addEventListener('keydown', (e) => {
+  ensureAudio();
   const dir = KEYMAP[e.key];
   if (dir) { e.preventDefault(); doMove(dir); return; }
   if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); return; }
@@ -516,6 +640,7 @@ window.addEventListener('keydown', (e) => {
 
 let touchX = null, touchY = null;
 boardEl.addEventListener('touchstart', (e) => {
+  ensureAudio();
   touchX = e.touches[0].clientX;
   touchY = e.touches[0].clientY;
 }, { passive: true });
@@ -532,6 +657,13 @@ boardEl.addEventListener('touchend', (e) => {
 
 newGameBtn.addEventListener('click', init);
 undoBtn.addEventListener('click', undo);
+soundBtn.addEventListener('click', () => {
+  muted = !muted;
+  saveMuted(muted);
+  updateSoundBtn();
+  if (!muted) { ensureAudio(); playTone('chest'); }
+});
+tipCloseBtn.addEventListener('click', dismissTip);
 chestBtn.addEventListener('click', () => {
   if (chestTotal >= CHEST_MAX || chestMovesLeft > 0) {
     showToast(chestTotal >= CHEST_MAX ? '本局宝箱已领完' : '还需走 ' + chestMovesLeft + ' 步开启宝箱');
@@ -541,6 +673,7 @@ chestBtn.addEventListener('click', () => {
 });
 document.querySelectorAll('.pad-btn').forEach(btn => {
   btn.addEventListener('click', () => {
+    ensureAudio();
     const d = btn.dataset.dir;
     if (d === 'undo') undo();
     else doMove(d);
@@ -551,6 +684,8 @@ window.addEventListener('resize', () => { buildCells(); render(); });
 window.addEventListener('pagehide', saveGame);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveGame(); });
 
+muted = loadMuted();
+updateSoundBtn();
 if (!tryRestore()) init();
 </script>
 </body>
